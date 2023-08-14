@@ -2,8 +2,6 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   
   
   #Calculate the environment (note that this depends on time)
-  #This the par at the top of the water column
-  #NOTE: this will be an input after we get it working
   layer_temp <- inputs[[t]]$temp
   PAR_surface <- inputs[[t]]$par
   inflow_n <-  inputs[[t]]$inflow_n
@@ -27,15 +25,10 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   Tmax <- parms[14]
   N_C_ratio <- parms[15]
   P_C_ratio <- parms[16]
-  
-  #Boundry conditions
   phyto_flux_top <- parms[17]
-  
-  #Physical description
   area <- parms[18]
   lake_depth <- parms[19]
   num_boxes <- parms[20]
-  
   KePHY <-parms[21]
   D_temp <- parms[22]
   
@@ -50,76 +43,92 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   
   # Reaction
   #calculate the depth of the middle of the box
-  layer_light_extinction <- light_extinction + cumsum(as.vector(PHYTO))*KePHY
   layer_mid_depths <- seq(delx, lake_depth, by = delx) 
+  #calculate the light extinction due to the phytos above
+  layer_light_extinction <- light_extinction + cumsum(as.vector(PHYTO))*KePHY
+  #calculate the PAR at each layer
   layer_PAR <- PAR_surface * exp(-layer_light_extinction * layer_mid_depths)
   
   # Temperature regulation of photosynthesis 
   fT <-  ((layer_temp - Tmin) / (Topt - Tmin)) *((Tmax - layer_temp) / (Tmax - Topt)) ^((Tmax - Topt) / (Topt - Tmin))
-  fT[fT < 0] <- 0.0
+  fT[fT < 0] <- 0.0 
   
+  #Nitrogen limitation
   fN <- (NIT - N_o) / (NIT - N_o + K_N)
   
+  #Phosphorus limitation
   fP <- (PHS - P_o) / (PHS - P_o + K_P)
   
+  #Light limitation
   fI <- (layer_PAR / (layer_PAR + ksPAR)) 
   
+  #Combined resource limitation
   fResources <- apply(data.frame(fN = fN, fP = fP, fI = fI), 1, FUN = min)
   #fResources <- apply(data.frame(fN = fN, fP = fP), 1, FUN = min) * fI
   
+  #primary productivity
   prim_prod <- R_growth * fT * fResources
   
-  fT_respiration <- theta_resp^(layer_temp-20.0)
+  #Photoexudation
+  exudation <- prim_prod * f_pr
   
+  #Temperature regulation of respiration
+  fT_respiration <- theta_resp^(layer_temp - 20.0)
+  
+  #Respiration
   respiration <- PHYTO * R_resp * fT_respiration
   
-  exudation <- prim_prod * f_pr
-
+  #Nitrogen uptake associated with primary productivity
   NIT_uptake <- (prim_prod - exudation) * N_C_ratio
   
+  #Phorphorus uptake associated with primary productivity
   PHS_uptake <- (prim_prod - exudation) * P_C_ratio
   
+  #nutrient turnover associated with respiration
   NIT_turnover <- respiration * N_C_ratio
   PHS_turnover <- respiration * P_C_ratio
   
+  #Stream inflow and outflow
   PHYTO_horizontal <- -PHYTO * outflow
   NIT_horizontal <- n_inflow - NIT * outflow
   PHS_horizontal <-  inflow_p - PHS * outflow 
   
+  #Net reaction of the states
   PHYTO_reaction <- prim_prod - respiration - exudation + PHYTO_horizontal
   NIT_reaction <- -NIT_uptake + NIT_turnover + NIT_horizontal
   PHS_reaction <- -PHS_uptake + PHS_turnover + PHS_horizontal
   
-  # Advection calculation
+  # Advection calculation (assume only PHYTOs advect)
   PHYTO_advection_flux <- c(phyto_flux_top, w_p * PHYTO) * area
   PHYTO_advection <- -(1/area) * (diff(PHYTO_advection_flux) / delx)
   
   NIT_advection <- 0.0
   PHS_advection <- 0.0
   
-  #Diffusion
+  #Diffusion (assume proportional to temperature gradient)
   
   temp_diff <- diff(layer_temp)
   D <- D_temp * abs(temp_diff)
-
-  gradient_middle_boxes <- diff(PHS) 
-  gradient <- c(0, gradient_middle_boxes, 0) / delx
-  diffusion_flux <- area * D * gradient
-  PHS_diffusion <- (1/area) * (diff(diffusion_flux) / delx)
   
+  #Nitrogen
   gradient_middle_boxes <- diff(NIT) 
   gradient <- c(0, gradient_middle_boxes, 0) / delx
   diffusion_flux <- area * D * gradient
   NIT_diffusion <- (1/area) * (diff(diffusion_flux) / delx)
+
+  #Phorphorus
+  gradient_middle_boxes <- diff(PHS) 
+  gradient <- c(0, gradient_middle_boxes, 0) / delx
+  diffusion_flux <- area * D * gradient
+  PHS_diffusion <- (1/area) * (diff(diffusion_flux) / delx)
   
   #Net change for each box
   dPHYTO_dt <- PHYTO_advection + PHYTO_reaction
   dNIT_dt <- NIT_advection + NIT_diffusion + NIT_reaction
   dPHS_dt <- PHS_advection + PHS_diffusion + PHS_reaction
   
-  list(c(dPHYTO_dt, dNIT_dt, dPHS_dt), 
-       c(fN = fN, fP = fP, fI = fI, fResources = fResources, fT = fT)) #This returns the vector of derivatives for each layer box
-  
+  list(c(dPHYTO_dt, dNIT_dt, dPHS_dt),  #This returns the vector of derivatives for each layer box
+       c(fN = fN, fP = fP, fI = fI, fResources = fResources, fT = fT, layer_light_extinction = layer_light_extinction))  #This returns the vector of diagnostics
 }
 
 
@@ -128,16 +137,16 @@ phyto_depth_model <- function(t, state, parms, inputs) {
 #Time scale = day
 
 parms <- c(
-  0.1, #w_p
-  2, #R_growth
-  0.1, #light_extinction
+  0.05, #w_p
+  10, #R_growth
+  0.5, #light_extinction
   120, #ksPAR
   0.0, #N_o
   2.0, #K_N
   0.0, #P_o
   0.1, #K_P
   0.1, #f_pr
-  0.2, #R_resp
+  0.08, #R_resp
   1.08, #theta_resp
   18, #Tmin
   25, #Topt
@@ -148,53 +157,69 @@ parms <- c(
   1, #area
   12,# lake_depth
   48,# num_boxes
-  0.0002,#KePHYTO
+  0.005,#KePHYTO
   0.001) #D_temp
   
-numboxes <- parms[20]
+# Initial conditions
 
-#First set all layers equal to zero
-yini <- rep(0, numboxes)
+yini <- rep(0, 3*parms[20])
+delx <- parms[19] / parms[20]
+depths <- seq(from = delx / 2, by = delx, length.out = parms[20]) 
 
-#Then initialize the layers where the Phytos are starting
-yini[1] <- 3
-yini[(numboxes+1):(numboxes*2)] <- 10
-yini[(2*numboxes+1):(numboxes*3)] <- 0.1
+# Assign a value for each depth
+yini[1:numboxes] <- approx(x = c(0, 2, parms[19]), y = c(30,0,0), xout = depths, rule = 2)$y
+yini[(numboxes+1):(numboxes*2)] <- approx(x = c(0, parms[19]), y = c(10, 10), xout = depths, rule = 2)$y
+yini[(2*numboxes+1):(numboxes*3)] <- approx(x = c(0, parms[19]), y = c(0.1, 0.1), xout = depths, rule = 2)$y
 
-#Write the csv file with the PAR and temperature data
+# INPUTS
+
+#a quick temperary light function
+
 light_function <- function(x){
   time = x
   0.5*(540+440*sin(2*pi*time/365-1.4))
 }
-#Create the PAR data
+
+#create a list of the inputs for each day
+datetime <- seq(lubridate::as_date("2021-01-01"), lubridate::as_date("2022-12-31"), by = "1 day")
+num_boxes <- parms[20]
+
 inputs <- list()
-for(i in 1:730){
+for(i in 1:length(datetime)){
   
   inflow_n <- rep(0,num_boxes)
-  inflow_n[1] <- 0 #0.01
+  inflow_n[3] <- 0.1
   
   inflow_p <- rep(0,num_boxes)
-  inflow_p[1] <- 0 #0.001
+  inflow_p[3] <- 0.01
   
   outflow <- rep(0,num_boxes)
-  outflow[1] <- 0.0# 0.01
+  outflow[3] <- 0.001 # 0.01
   
-  temp_func <- approxfun(x = c(1, 5, 30), y = c(20, 18, 10), rule = 2)
+  if(month(datetime[i]) %in% c(10,11,12,1,2,3)){
+    temp_func <- approxfun(x = c(1, 5, 30), y = c(18, 18, 18), rule = 2)
+  }else{
+    temp_func <- approxfun(x = c(1, 5, 30), y = c(25, 18, 10), rule = 2)
+  }
   
   delx <- parms[19] / parms[20]
   depths <- seq(from = delx / 2, by = delx, length.out = parms[20]) 
   
-  inputs[[i]] <- list(par = light_function(i), 
+  inputs[[i]] <- list(datetime = datetime[i],
+                      par = light_function(i), 
                       temp = temp_func(depths),
                       inflow_n = inflow_n,
                       inflow_p = inflow_p,
-                      outflow = outflow
-                      )
+                      outflow = outflow)
+  
 }
+
+names(inputs) <- datetime
+
+#Use DeSolve to intergrate 
 
 library(deSolve)
 
-#Use DeSolve to intergrate 
 simulation_time <- 2 * 365 #DAYS
 dt <- 1
 times <- seq(1, simulation_time, by = dt)
@@ -215,7 +240,7 @@ output <- as.data.frame(output)
 
 #Rename the columns to match the depths
 depths <- seq(from = delx / 2, by = delx, length.out = numboxes)  # sequence, 1 m intervals
-names(output) <- c("time", depths)
+names(output) <- c("time", rep(depths, 9))
 #output
 
 #Grab the columns that correspond to the different depths
@@ -227,6 +252,7 @@ fP_index <- (4*num_boxes+1):(5*num_boxes)
 fI_index <- (5*num_boxes+1):(6*num_boxes)
 fResources_index <- (6*num_boxes+1):(7*num_boxes)
 fT_index <- (7*num_boxes+1):(8*num_boxes)
+light_extinction_index <- (8*num_boxes+1):(9*num_boxes)
 
 PHYTO <- output[,PHYTO_index+1 ]
 NIT <- output[, NIT_index + 1]
@@ -236,6 +262,7 @@ fP <- output[, fP_index + 1]
 fI <- output[, fI_index + 1]
 fResources <- output[, fResources_index + 1] 
 fT <- output[, fT_index + 1] 
+light_extinction <- output[, light_extinction_index + 1] 
 
 # temporal-spatial plot of the concentrations
 par(oma = c(0, 0, 3, 0))   # set margin size (oma) so that the title is included
@@ -347,10 +374,24 @@ df_fT <- fT|>
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "fT")
 
-combined <- bind_rows(df_PHYTO, df_NIT, df_PHS, df_fResources, df_fN, df_fP, df_fI, df_fT)
+names(light_extinction) <- names(PHYTO)
+df_light_extinction <- light_extinction|> 
+  dplyr::mutate(datetime = 1:nrow(light_extinction)) |> 
+  tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
+  dplyr::mutate(depth = as.numeric(depth) - 0.125,
+                variable = "light_extinction")
+
+df_seechi <- df_light_extinction |> 
+  filter(depth == 1) |> 
+  mutate(prediction = 1.7 / prediction,
+         depth = NA, 
+         variable = "seechi")
+  
+
+combined <- bind_rows(df_PHYTO, df_NIT, df_PHS, df_fResources, df_fN, df_fP, df_fI, df_fT, df_light_extinction, df_seechi)
 
 combined |> 
-  filter(depth == 1.5) |> 
+  filter(depth == 1.0 | is.na(depth)) |> 
   ggplot(aes(x = datetime, y = prediction)) +
   geom_line() +
   facet_wrap(~variable, scale = "free")
