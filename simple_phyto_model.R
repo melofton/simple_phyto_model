@@ -7,6 +7,10 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   inflow_n <-  inputs[[t]]$inflow_n
   inflow_p <-  inputs[[t]]$inflow_p
   outflow <- inputs[[t]]$outflow
+  areas_mid <- inputs[[t]]$areas_mid
+  areas_interface <- inputs[[t]]$areas_interface
+  inflow_area <- inputs[[t]]$inflow_area
+  outflow_area<- inputs[[t]]$outflow_area
 
   #Unpack parameters
   w_p <- parms[1]
@@ -26,7 +30,7 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   N_C_ratio <- parms[15]
   P_C_ratio <- parms[16]
   phyto_flux_top <- parms[17]
-  area <- parms[18]
+  #area <- parms[18]
   lake_depth <- parms[19]
   num_boxes <- parms[20]
   KePHY <-parms[21]
@@ -89,9 +93,9 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   PHS_turnover <- respiration * P_C_ratio
   
   #Stream inflow and outflow
-  PHYTO_horizontal <- -PHYTO * outflow
-  NIT_horizontal <- n_inflow - NIT * outflow
-  PHS_horizontal <-  inflow_p - PHS * outflow 
+  PHYTO_horizontal <- -PHYTO * outflow * (outflow_area / areas_mid)
+  NIT_horizontal <- inflow_n * (inflow_area / areas_mid) - NIT * outflow * (outflow_area / areas_mid)
+  PHS_horizontal <-  inflow_p * (inflow_area / areas_mid) - PHS * outflow * (outflow_area / areas_mid)
   
   #Net reaction of the states
   PHYTO_reaction <- prim_prod - respiration - exudation + PHYTO_horizontal
@@ -99,8 +103,8 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   PHS_reaction <- -PHS_uptake + PHS_turnover + PHS_horizontal
   
   # Advection calculation (assume only PHYTOs advect)
-  PHYTO_advection_flux <- c(phyto_flux_top, w_p * PHYTO) * area
-  PHYTO_advection <- -(1/area) * (diff(PHYTO_advection_flux) / delx)
+  PHYTO_advection_flux <- c(phyto_flux_top, -w_p * PHYTO) * areas_interface
+  PHYTO_advection <- -(1/areas_mid) * (diff(PHYTO_advection_flux) / delx)
   
   NIT_advection <- 0.0
   PHS_advection <- 0.0
@@ -108,19 +112,19 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   #Diffusion (assume proportional to temperature gradient)
   
   temp_diff <- diff(layer_temp)
-  D <- D_temp * abs(temp_diff)
+  D <- D_temp * c(0, abs(temp_diff), 0)
   
   #Nitrogen
   gradient_middle_boxes <- diff(NIT) 
   gradient <- c(0, gradient_middle_boxes, 0) / delx
-  diffusion_flux <- area * D * gradient
-  NIT_diffusion <- (1/area) * (diff(diffusion_flux) / delx)
+  diffusion_flux <- areas_interface * D * gradient
+  NIT_diffusion <- (1/areas_mid) * (diff(diffusion_flux) / delx)
 
   #Phorphorus
   gradient_middle_boxes <- diff(PHS) 
   gradient <- c(0, gradient_middle_boxes, 0) / delx
-  diffusion_flux <- area * D * gradient
-  PHS_diffusion <- (1/area) * (diff(diffusion_flux) / delx)
+  diffusion_flux <- areas_interface * D * gradient
+  PHS_diffusion <- (1/areas_mid) * (diff(diffusion_flux) / delx)
   
   #Net change for each box
   dPHYTO_dt <- PHYTO_advection + PHYTO_reaction
@@ -137,10 +141,10 @@ phyto_depth_model <- function(t, state, parms, inputs) {
 #Time scale = day
 
 parms <- c(
-  0.05, #w_p
+  -0.05, #w_p (negative is down, positive is up)
   10, #R_growth
   0.5, #light_extinction
-  120, #ksPAR
+  50, #ksSW
   0.0, #N_o
   2.0, #K_N
   0.0, #P_o
@@ -154,9 +158,9 @@ parms <- c(
   0.02, #N_C_ratio
   0.002, #P_C_ratio
   0, #phyto_flux_top
-  1, #area
-  12,# lake_depth
-  48,# num_boxes
+  1, #area (not used)
+  9.5,# lake_depth
+  38,# num_boxes
   0.005,#KePHYTO
   0.001) #D_temp
   
@@ -167,9 +171,10 @@ delx <- parms[19] / parms[20]
 depths <- seq(from = delx / 2, by = delx, length.out = parms[20]) 
 
 # Assign a value for each depth
-yini[1:numboxes] <- approx(x = c(0, 2, parms[19]), y = c(30,0,0), xout = depths, rule = 2)$y
-yini[(numboxes+1):(numboxes*2)] <- approx(x = c(0, parms[19]), y = c(10, 10), xout = depths, rule = 2)$y
-yini[(2*numboxes+1):(numboxes*3)] <- approx(x = c(0, parms[19]), y = c(0.1, 0.1), xout = depths, rule = 2)$y
+num_boxes <- parms[20]
+yini[1:num_boxes] <- approx(x = c(0, 2, parms[19]), y = c(30,0,0), xout = depths, rule = 2)$y
+yini[(num_boxes+1):(num_boxes*2)] <- approx(x = c(0, 4, parms[19]), y = c(0,2, 10), xout = depths, rule = 2)$y
+yini[(2*num_boxes+1):(num_boxes*3)] <- approx(x = c(0, parms[19]), y = c(0.05, 0.05), xout = depths, rule = 2)$y
 
 # INPUTS
 
@@ -184,6 +189,41 @@ light_function <- function(x){
 datetime <- seq(lubridate::as_date("2021-01-01"), lubridate::as_date("2022-12-31"), by = "1 day")
 num_boxes <- parms[20]
 
+morphometry_H <- c(497.683, 497.983, 498.283, 498.683, 498.983, 499.283, 499.583, 499.883, 500.183, 500.483, 500.783, 501.083, 501.383, 501.683, 501.983, 502.283, 502.583, 502.883, 503.183, 503.483, 503.783, 504.083, 504.383, 504.683, 505.083, 505.383, 505.683, 505.983, 506.283, 506.583, 506.983)
+morphometry_A <- c(10, 61.408883, 494.615572, 1201.23579, 2179.597283, 3239.620513, 4358.358439, 5637.911458, 6929.077352, 8228.697419, 9469.324081, 10811.30792, 12399.67051, 14484.22802, 16834.20941, 19631.05422, 22583.1399, 25790.70893, 28442.99667, 31155.95008, 36269.3312, 42851.13714, 51179.89109, 59666.85885, 68146.39437, 76424.14457, 85430.25429, 95068.47603, 103030.4489, 111302.1604, 119880.9164)
+
+morphometry_depth <- abs(max(morphometry_H) - morphometry_H)
+
+temp_data <- readr::read_csv("https://pasta.lternet.edu/package/data/eml/edi/271/7/71e6b946b751aa1b966ab5653b01077f")
+
+daily_temp_data <- temp_data |> 
+  dplyr::select(DateTime, ThermistorTemp_C_surface, ThermistorTemp_C_1, ThermistorTemp_C_2,
+         ThermistorTemp_C_3, ThermistorTemp_C_4, ThermistorTemp_C_5, ThermistorTemp_C_6, 
+         ThermistorTemp_C_7, ThermistorTemp_C_8, ThermistorTemp_C_9) |> 
+  dplyr::rename("0.1" = ThermistorTemp_C_surface,
+         "1" = ThermistorTemp_C_1,
+         "2" = ThermistorTemp_C_2,
+         "3" = ThermistorTemp_C_3,
+         "4" = ThermistorTemp_C_4,
+         "5" = ThermistorTemp_C_5,
+         "6" = ThermistorTemp_C_6,
+         "7" = ThermistorTemp_C_7,
+         "8" = ThermistorTemp_C_8,
+         "9" = ThermistorTemp_C_9) |> 
+  tidyr::pivot_longer(-DateTime, names_to = "depth", values_to = "temperature") |> 
+  dplyr::mutate(date = lubridate::as_date(DateTime)) |> 
+  dplyr::summarize(temperature = mean(temperature, na.rm = TRUE), .by = c(depth,date))
+  
+
+met_data <- readr::read_csv("https://pasta.lternet.edu/package/data/eml/edi/389/7/02d36541de9088f2dd99d79dc3a7a853")
+
+sw_met_data <- met_data |> 
+  select(DateTime, ShortwaveRadiationUp_Average_W_m2) |> 
+  mutate(date = lubridate::as_date(DateTime)) |> 
+  summarize(sw = mean(ShortwaveRadiationUp_Average_W_m2, na.rm = TRUE), .by = c(date))
+
+sw_met_data$sw_no_na <- imputeTS::na_interpolation(sw_met_data$sw, option = "linear")  
+
 inputs <- list()
 for(i in 1:length(datetime)){
   
@@ -194,23 +234,48 @@ for(i in 1:length(datetime)){
   inflow_p[3] <- 0.01
   
   outflow <- rep(0,num_boxes)
-  outflow[3] <- 0.001 # 0.01
+  outflow[3] <- 0.005 # 0.01
   
-  if(month(datetime[i]) %in% c(10,11,12,1,2,3)){
-    temp_func <- approxfun(x = c(1, 5, 30), y = c(18, 18, 18), rule = 2)
-  }else{
-    temp_func <- approxfun(x = c(1, 5, 30), y = c(25, 18, 10), rule = 2)
+  inflow_area <- 10
+  outflow_area <- 10
+  
+  
+  temps <- daily_temp_data |> dplyr::filter(date == datetime[i])
+  if(length(which(!is.na(temps$temperature))) < 2){
+    j = 1
+    while(length(which(!is.na(temps$temperature))) < 2){
+    temps <- daily_temp_data |> dplyr::filter(date == datetime[i-j])
+    j <- j + 2
+    }
   }
   
+  temp_func <- approxfun(x = temps$depth, y = temps$temperature, rule = 2)
+
+  light <- sw_met_data |> dplyr::filter(date == datetime[i]) |> 
+    pull(sw_no_na)
+  
   delx <- parms[19] / parms[20]
-  depths <- seq(from = delx / 2, by = delx, length.out = parms[20]) 
+  depths_mid <- seq(from = delx / 2, by = delx, length.out = parms[20]) 
+  depths_interface <- seq(from = 0, to = parms[19], by = delx) 
+  
+  # use this if you don't know morphometry (assumes 1 meter area per depth)
+  areas_mid <- rep(1, length(depths_mid))
+  areas_interface <- rep(1, length(depths_interface))
+  
+  #use this if you have your morphometry defined 
+  areas_mid <- approx(x = morphometry_depth, y = morphometry_A, xout = depths_mid, rule = 2)$y
+  areas_interface <- approx(x = morphometry_depth, y = morphometry_A, xout = depths_interface, rule = 2)$y
   
   inputs[[i]] <- list(datetime = datetime[i],
-                      par = light_function(i), 
+                      par = light, 
                       temp = temp_func(depths),
                       inflow_n = inflow_n,
                       inflow_p = inflow_p,
-                      outflow = outflow)
+                      outflow = outflow,
+                      areas_mid = areas_mid,
+                      areas_interface = areas_interface,
+                      inflow_area = inflow_area,
+                      outflow_area = outflow_area)
   
 }
 
@@ -235,11 +300,11 @@ output <- ode(y = yini,
 area <- parms[18]
 lake_depth <- parms[19]
 num_boxes <- parms[20]
-delx <- lake_depth / numboxes
+delx <- lake_depth / num_boxes
 output <- as.data.frame(output)
 
 #Rename the columns to match the depths
-depths <- seq(from = delx / 2, by = delx, length.out = numboxes)  # sequence, 1 m intervals
+depths <- seq(from = delx / 2, by = delx, length.out = num_boxes)  # sequence, 1 m intervals
 names(output) <- c("time", rep(depths, 9))
 #output
 
