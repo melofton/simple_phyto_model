@@ -112,7 +112,8 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   #Diffusion (assume proportional to temperature gradient)
   
   temp_diff <- diff(layer_temp)
-  D <- D_temp * c(0, abs(temp_diff), 0)
+  temp_diff[which(abs(temp_diff) < 0.01)] <- 0.01
+  D <- D_temp * c(0, 1/abs(temp_diff), 0)
   
   #Nitrogen
   gradient_middle_boxes <- diff(NIT) 
@@ -162,7 +163,7 @@ parms <- c(
   9.5,# lake_depth
   38,# num_boxes
   0.005,#KePHYTO
-  0.001) #D_temp
+  0.01) #D_temp
   
 # Initial conditions
 
@@ -173,12 +174,12 @@ depths <- seq(from = delx / 2, by = delx, length.out = parms[20])
 # Assign a value for each depth
 num_boxes <- parms[20]
 yini[1:num_boxes] <- approx(x = c(0, 2, parms[19]), y = c(30,0,0), xout = depths, rule = 2)$y
-yini[(num_boxes+1):(num_boxes*2)] <- approx(x = c(0, 4, parms[19]), y = c(0,2, 10), xout = depths, rule = 2)$y
+yini[(num_boxes+1):(num_boxes*2)] <- approx(x = c(0, 4, parms[19]), y = c(0,2, 2), xout = depths, rule = 2)$y
 yini[(2*num_boxes+1):(num_boxes*3)] <- approx(x = c(0, parms[19]), y = c(0.05, 0.05), xout = depths, rule = 2)$y
 
 # INPUTS
 
-#a quick temperary light function
+#a quick temporary light function (not used anymore because we have data)
 
 light_function <- function(x){
   time = x
@@ -214,32 +215,40 @@ daily_temp_data <- temp_data |>
   dplyr::mutate(date = lubridate::as_date(DateTime)) |> 
   dplyr::summarize(temperature = mean(temperature, na.rm = TRUE), .by = c(depth,date))
   
+inflow_data <- readr::read_csv("https://s3.flare-forecast.org/targets/fcre_v2/fcre/fcre-targets-inflow.csv")
+
+inflow_data <- inflow_data |> filter(variable %in% c("FLOW","NIT_amm", "NIT_nit", "PHS_frp")) |> 
+  pivot_wider(names_from = variable, values_from = observation) |> 
+  mutate(n_load = FLOW * (NIT_amm + NIT_nit),
+         p_load = FLOW * (PHS_frp)) 
+
 
 met_data <- readr::read_csv("https://pasta.lternet.edu/package/data/eml/edi/389/7/02d36541de9088f2dd99d79dc3a7a853")
 
 sw_met_data <- met_data |> 
-  select(DateTime, ShortwaveRadiationUp_Average_W_m2) |> 
-  mutate(date = lubridate::as_date(DateTime)) |> 
-  summarize(sw = mean(ShortwaveRadiationUp_Average_W_m2, na.rm = TRUE), .by = c(date))
+  dplyr::select(DateTime, ShortwaveRadiationUp_Average_W_m2) |> 
+  dplyr::mutate(date = lubridate::as_date(DateTime)) |> 
+  dplyr::summarize(sw = mean(ShortwaveRadiationUp_Average_W_m2, na.rm = TRUE), .by = c(date))
 
 sw_met_data$sw_no_na <- imputeTS::na_interpolation(sw_met_data$sw, option = "linear")  
 
 inputs <- list()
 for(i in 1:length(datetime)){
   
+  day_inflow <- inflow_data |> filter(datetime == datetime[i])
+  
   inflow_n <- rep(0,num_boxes)
-  inflow_n[3] <- 0.1
+  inflow_n[1] <- day_inflow$n_load
   
   inflow_p <- rep(0,num_boxes)
-  inflow_p[3] <- 0.01
+  inflow_p[1] <- day_inflow$p_load
   
   outflow <- rep(0,num_boxes)
-  outflow[3] <- 0.005 # 0.01
+  outflow[1] <- day_inflow$FLOW
   
-  inflow_area <- 10
-  outflow_area <- 10
-  
-  
+  inflow_area <- 5
+  outflow_area <- 5
+
   temps <- daily_temp_data |> dplyr::filter(date == datetime[i])
   if(length(which(!is.na(temps$temperature))) < 2){
     j = 1
@@ -252,7 +261,7 @@ for(i in 1:length(datetime)){
   temp_func <- approxfun(x = temps$depth, y = temps$temperature, rule = 2)
 
   light <- sw_met_data |> dplyr::filter(date == datetime[i]) |> 
-    pull(sw_no_na)
+    dplyr::pull(sw_no_na)
   
   delx <- parms[19] / parms[20]
   depths_mid <- seq(from = delx / 2, by = delx, length.out = parms[20]) 
@@ -293,7 +302,8 @@ output <- ode(y = yini,
               times = times, 
               func = phyto_depth_model, 
               parms = parms,
-              inputs = inputs)
+              inputs = inputs,
+              method = "ode45")
 
 #Note that the first column in time and the other columns are the different depths that the derivative are calculated
 #Initial conditions
@@ -348,7 +358,7 @@ filled.contour(x = times,
                z = as.matrix(NIT), 
                color = col, 
                ylim = c(lake_depth, 0), 
-               zlim = range(c(NIT)),
+               zlim = c(0,3), #range(c(NIT)),
                xlab = "time, days", 
                ylab = "Depth, m", 
                main = "Concentration, mmolN/m3")
@@ -460,3 +470,8 @@ combined |>
   ggplot(aes(x = datetime, y = prediction)) +
   geom_line() +
   facet_wrap(~variable, scale = "free")
+
+combined |> filter(depth %in% c(1,8),
+                   variable == "nit") |>
+  ggplot(aes(x = datetime, y = prediction, color = factor(depth))) +
+  geom_line()
