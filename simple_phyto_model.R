@@ -11,7 +11,7 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   areas_interface <- inputs[[t]]$areas_interface
   inflow_area <- inputs[[t]]$inflow_area
   outflow_area<- inputs[[t]]$outflow_area
-
+  
   #Unpack parameters
   w_p <- parms[1]
   R_growth <- parms[2]
@@ -106,8 +106,13 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   PHYTO_advection_flux <- c(phyto_flux_top, -w_p * PHYTO) * areas_interface
   PHYTO_advection <- -(1/areas_mid) * (diff(PHYTO_advection_flux) / delx)
   
-  NIT_advection <- 0.0
-  PHS_advection <- 0.0
+  w_p_nut <- 0.001
+  NIT_advection_flux <- c(0, -w_p_nut * NIT) * areas_interface
+  NIT_advection <- -(1/areas_mid) * (diff(NIT_advection_flux) / delx)
+  
+  PHS_advection_flux <- c(0, -w_p_nut * PHS) * areas_interface
+  PHS_advection <- -(1/areas_mid) * (diff(PHS_advection_flux) / delx)
+  
   
   #Diffusion (assume proportional to temperature gradient)
   
@@ -120,7 +125,7 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   gradient <- c(0, gradient_middle_boxes, 0) / delx
   diffusion_flux <- areas_interface * D * gradient
   NIT_diffusion <- (1/areas_mid) * (diff(diffusion_flux) / delx)
-
+  
   #Phorphorus
   gradient_middle_boxes <- diff(PHS) 
   gradient <- c(0, gradient_middle_boxes, 0) / delx
@@ -143,7 +148,7 @@ phyto_depth_model <- function(t, state, parms, inputs) {
 
 parms <- c(
   -0.05, #w_p (negative is down, positive is up)
-  10, #R_growth
+  30, #R_growth
   0.5, #light_extinction
   50, #ksSW
   0.0, #N_o
@@ -164,7 +169,7 @@ parms <- c(
   38,# num_boxes
   0.005,#KePHYTO
   0.01) #D_temp
-  
+
 # Initial conditions
 
 yini <- rep(0, 3*parms[20])
@@ -199,22 +204,22 @@ temp_data <- readr::read_csv("https://pasta.lternet.edu/package/data/eml/edi/271
 
 daily_temp_data <- temp_data |> 
   dplyr::select(DateTime, ThermistorTemp_C_surface, ThermistorTemp_C_1, ThermistorTemp_C_2,
-         ThermistorTemp_C_3, ThermistorTemp_C_4, ThermistorTemp_C_5, ThermistorTemp_C_6, 
-         ThermistorTemp_C_7, ThermistorTemp_C_8, ThermistorTemp_C_9) |> 
+                ThermistorTemp_C_3, ThermistorTemp_C_4, ThermistorTemp_C_5, ThermistorTemp_C_6, 
+                ThermistorTemp_C_7, ThermistorTemp_C_8, ThermistorTemp_C_9) |> 
   dplyr::rename("0.1" = ThermistorTemp_C_surface,
-         "1" = ThermistorTemp_C_1,
-         "2" = ThermistorTemp_C_2,
-         "3" = ThermistorTemp_C_3,
-         "4" = ThermistorTemp_C_4,
-         "5" = ThermistorTemp_C_5,
-         "6" = ThermistorTemp_C_6,
-         "7" = ThermistorTemp_C_7,
-         "8" = ThermistorTemp_C_8,
-         "9" = ThermistorTemp_C_9) |> 
+                "1" = ThermistorTemp_C_1,
+                "2" = ThermistorTemp_C_2,
+                "3" = ThermistorTemp_C_3,
+                "4" = ThermistorTemp_C_4,
+                "5" = ThermistorTemp_C_5,
+                "6" = ThermistorTemp_C_6,
+                "7" = ThermistorTemp_C_7,
+                "8" = ThermistorTemp_C_8,
+                "9" = ThermistorTemp_C_9) |> 
   tidyr::pivot_longer(-DateTime, names_to = "depth", values_to = "temperature") |> 
   dplyr::mutate(date = lubridate::as_date(DateTime)) |> 
   dplyr::summarize(temperature = mean(temperature, na.rm = TRUE), .by = c(depth,date))
-  
+
 inflow_data <- readr::read_csv("https://s3.flare-forecast.org/targets/fcre_v2/fcre/fcre-targets-inflow.csv")
 
 inflow_data <- inflow_data |> filter(variable %in% c("FLOW","NIT_amm", "NIT_nit", "PHS_frp")) |> 
@@ -248,18 +253,18 @@ for(i in 1:length(datetime)){
   
   inflow_area <- 5
   outflow_area <- 5
-
+  
   temps <- daily_temp_data |> dplyr::filter(date == datetime[i])
   if(length(which(!is.na(temps$temperature))) < 2){
     j = 1
     while(length(which(!is.na(temps$temperature))) < 2){
-    temps <- daily_temp_data |> dplyr::filter(date == datetime[i-j])
-    j <- j + 2
+      temps <- daily_temp_data |> dplyr::filter(date == datetime[i-j])
+      j <- j + 2
     }
   }
   
   temp_func <- approxfun(x = temps$depth, y = temps$temperature, rule = 2)
-
+  
   light <- sw_met_data |> dplyr::filter(date == datetime[i]) |> 
     dplyr::pull(sw_no_na)
   
@@ -348,7 +353,7 @@ filled.contour(x = times,
                z = as.matrix(PHYTO), 
                color = col, 
                ylim = c(lake_depth, 0), 
-               zlim = range(c(PHYTO)),
+               zlim = c(0,50), #range(c(PHYTO)),
                xlab = "time, days", 
                ylab = "Depth, m", 
                main = "Concentration, mmolC/m3")
@@ -388,16 +393,20 @@ mtext(outer = TRUE, side = 3, "Vertical phytoplankton model", cex = 1.5)
 library(tidyverse)
 
 df_PHYTO <- PHYTO |> 
-  dplyr::mutate(datetime = 1:nrow(PHYTO)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "phyto")
+
+df_chla <- df_PHYTO |> 
+  dplyr::mutate(prediction = prediction * 0.4,
+                variable = "chla")
 
 names(NIT) <- names(PHYTO)
 
 
 df_NIT <- NIT |> 
-  dplyr::mutate(datetime = 1:nrow(NIT)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "nit")
@@ -405,7 +414,7 @@ df_NIT <- NIT |>
 names(PHS) <- names(PHYTO)
 
 df_PHS <- PHS |> 
-  dplyr::mutate(datetime = 1:nrow(PHS)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "phs")
@@ -413,7 +422,7 @@ df_PHS <- PHS |>
 names(fResources) <- names(PHYTO)
 
 df_fResources <- fResources |> 
-  dplyr::mutate(datetime = 1:nrow(fResources)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "fResources")
@@ -421,7 +430,7 @@ df_fResources <- fResources |>
 names(fN) <- names(PHYTO)
 
 df_fN <- fN |> 
-  dplyr::mutate(datetime = 1:nrow(fN)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "fN")
@@ -429,7 +438,7 @@ df_fN <- fN |>
 names(fP) <- names(PHYTO)
 
 df_fP <- fP|> 
-  dplyr::mutate(datetime = 1:nrow(fP)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "fP")
@@ -437,21 +446,21 @@ df_fP <- fP|>
 names(fI) <- names(PHYTO)
 
 df_fI <- fI|> 
-  dplyr::mutate(datetime = 1:nrow(fI)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "fI")
 
 names(fT) <- names(PHYTO)
 df_fT <- fT|> 
-  dplyr::mutate(datetime = 1:nrow(fT)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "fT")
 
 names(light_extinction) <- names(PHYTO)
 df_light_extinction <- light_extinction|> 
-  dplyr::mutate(datetime = 1:nrow(light_extinction)) |> 
+  dplyr::mutate(datetime = datetime) |> 
   tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |> 
   dplyr::mutate(depth = as.numeric(depth) - 0.125,
                 variable = "light_extinction")
@@ -461,9 +470,9 @@ df_seechi <- df_light_extinction |>
   mutate(prediction = 1.7 / prediction,
          depth = NA, 
          variable = "seechi")
-  
 
-combined <- bind_rows(df_PHYTO, df_NIT, df_PHS, df_fResources, df_fN, df_fP, df_fI, df_fT, df_light_extinction, df_seechi)
+
+combined <- bind_rows(df_PHYTO, df_NIT, df_PHS, df_fResources, df_fN, df_fP, df_fI, df_fT, df_light_extinction, df_seechi, df_chla)
 
 combined |> 
   filter(depth == 1.0 | is.na(depth)) |> 
