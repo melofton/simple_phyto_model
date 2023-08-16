@@ -1,4 +1,4 @@
-build_output_df <- function(output, obs, parms){
+build_output_df <- function(output, obs, parms, run_datetimes){
   #Note that the first column in time and the other columns are the different depths that the derivative are calculated
   #Initial conditions
   lake_depth <- parms[19]
@@ -33,7 +33,7 @@ build_output_df <- function(output, obs, parms){
   light_extinction <- output[, light_extinction_index + 1]
 
   df_PHYTO <- PHYTO |>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "phyto")
@@ -45,7 +45,7 @@ build_output_df <- function(output, obs, parms){
   names(NIT) <- names(PHYTO)
 
   df_NIT <- NIT |>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "din")
@@ -53,7 +53,7 @@ build_output_df <- function(output, obs, parms){
   names(PHS) <- names(PHYTO)
 
   df_PHS <- PHS |>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "frp")
@@ -61,7 +61,7 @@ build_output_df <- function(output, obs, parms){
   names(fResources) <- names(PHYTO)
 
   df_fResources <- fResources |>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "fResources")
@@ -69,7 +69,7 @@ build_output_df <- function(output, obs, parms){
   names(fN) <- names(PHYTO)
 
   df_fN <- fN |>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "fN")
@@ -77,7 +77,7 @@ build_output_df <- function(output, obs, parms){
   names(fP) <- names(PHYTO)
 
   df_fP <- fP|>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "fP")
@@ -85,21 +85,21 @@ build_output_df <- function(output, obs, parms){
   names(fI) <- names(PHYTO)
 
   df_fI <- fI|>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "fI")
 
   names(fT) <- names(PHYTO)
   df_fT <- fT|>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "fT")
 
   names(light_extinction) <- names(PHYTO)
   df_light_extinction <- light_extinction|>
-    dplyr::mutate(datetime = datetime) |>
+    dplyr::mutate(datetime = run_datetimes) |>
     tidyr::pivot_longer(cols = -datetime, names_to = "depth", values_to = "prediction") |>
     dplyr::mutate(depth = as.numeric(depth) - 0.125,
                   variable = "light_extinction")

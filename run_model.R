@@ -1,6 +1,7 @@
 library(deSolve)
 library(tidyverse)
 source("build_output_df.R")
+source("depth_phyto_model.R")
 
 run_datetimes <- seq(lubridate::as_date("2020-10-19"), lubridate::as_date("2022-12-31"), by = "1 day")
 
@@ -144,13 +145,14 @@ output <- ode(y = yini,
               inputs = inputs,
               method = "ode45")
 
-output_df <- build_output_df(output, obs, parms)
+output_df <- build_output_df(output, obs, parms, run_datetimes)
 
 # Visualize output
 
 # temporal-spatial plot of the concentrations
 par(oma = c(0, 0, 3, 0))   # set margin size (oma) so that the title is included
 col <- topo.colors
+lake_depth <- parms[19]
 
 mat <- output_df |>
   filter(variable == "phyto") |>
