@@ -1,9 +1,9 @@
 build_output_df <- function(output, obs, parms, run_datetimes){
   #Note that the first column in time and the other columns are the different depths that the derivative are calculated
   #Initial conditions
-  lake_depth <- parms[19]
-  num_boxes <- parms[20]
-  xcc <- parms[23]
+  lake_depth <- parms[20]
+  num_boxes <- parms[21]
+  xcc <- parms[24]
   delx <- lake_depth / num_boxes
   output <- as.data.frame(output)
 

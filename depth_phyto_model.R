@@ -1,3 +1,74 @@
+get_T_parms <- function(group_parms){
+
+  # unpack parms
+  T_std = group_parms$T_std
+  T_opt = group_parms$T_opt
+  T_max = group_parms$T_max
+
+  theta = group_parms$theta_growth
+
+  t20 = 20
+  tol   = 0.05
+  inn = 1
+  a0 = theta^(T_std-t20)
+  a1 = theta^(T_opt-t20)
+  a2 = theta^(T_max-t20)
+
+  # Perform the iteration to find the constants.
+  # First approximation of k.
+  k = 6.0
+  i = 0
+  G = tol + 1.0
+  curvef = TRUE
+  # Do the iterations until -tol < G < tol
+
+  repeat{
+
+    i=i+1
+
+    if(i == 100){ #increases the tolerance if more than 100 iterations performed
+      i=0
+      tol=tol+0.01
+    }
+
+    if(curvef == TRUE){ # Use the condition f(T)=v**(T-20) at T=Tsta
+      G = k * theta^(k * T_opt) * a2 - a1 * (theta^(k * T_max) - theta^(k * T_std))
+      devG = theta^(k * T_opt) * a2 * (inn + k * T_opt * log(theta)) - a1 * log(theta) * (T_max * theta^(k * T_max) - T_std * theta^(k * T_std))
+    } else { # Use the condition f(T)=1 at T=Tsta
+      G = k * theta^(k * T_opt) * (a0 - a2 - inn) - a1 * (theta^(k * T_std) - theta^(k * T_max))
+      devG = (a0 - a2 - inn) * theta^(k * T_opt) * (inn + k * T_opt * log(theta)) - a1 * log(theta) * (T_std * theta^(k * T_std) - T_max * theta^(k * T_max))
+    }
+
+    # Find the next iteration of k
+    k = k - G / devG
+
+    if((G <= -tol) | (G >= tol)){
+      break
+    }
+  }
+
+  # Get the remaining model constants
+  if(k != 0.0){
+    a=-log(a1/(k*theta^(k*T_opt)))/(k*log(theta))
+    if(curvef == TRUE){
+      b=theta^(k*(T_std-a))
+    } else {
+      b=inn+theta^(k*(T_std-a))-a0
+    }
+  } else {
+    a=0.0
+    b=0.0
+  }
+
+  # Set the model constants to the calculated values
+  kTn = k
+  aTn = a
+  bTn = b
+
+  return(list(kTn = kTn, aTn = aTn, bTn = bTn))
+
+}
+
 phyto_depth_model <- function(t, state, parms, inputs) {
 
   #Calculate the environment (note that this depends on time)
@@ -14,26 +85,30 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   #Unpack parameters
   w_p <- parms[1]
   R_growth <- parms[2]
-  light_extinction <- parms[3]
-  ksPAR <- parms[4]
-  N_o <- parms[5]
-  K_N <- parms[6]
-  P_o <- parms[7]
-  K_P <- parms[8]
-  f_pr <- parms[9]
-  R_resp <- parms[10]
-  theta_resp <- parms[11]
-  Tmin <- parms[12]
-  Topt <- parms[13]
-  Tmax <- parms[14]
-  N_C_ratio <- parms[15]
-  P_C_ratio <- parms[16]
-  phyto_flux_top <- parms[17]
-  #area <- parms[18]
-  lake_depth <- parms[19]
-  num_boxes <- parms[20]
-  KePHY <-parms[21]
-  D_temp <- parms[22]
+  theta_growth <- parms[3]
+  light_extinction <- parms[4]
+  ksPAR <- parms[5]
+  N_o <- parms[6]
+  K_N <- parms[7]
+  P_o <- parms[8]
+  K_P <- parms[9]
+  f_pr <- parms[10]
+  R_resp <- parms[11]
+  theta_resp <- parms[12]
+  T_std <- parms[13]
+  T_opt <- parms[14]
+  T_max <- parms[15]
+  N_C_ratio <- parms[16]
+  P_C_ratio <- parms[17]
+  phyto_flux_top <- parms[18]
+  #area <- parms[19]
+  lake_depth <- parms[20]
+  num_boxes <- parms[21]
+  KePHY <-parms[22]
+  D_temp <- parms[23]
+
+  Tparms <- get_T_parms(group_parms = list(T_std = parms[24], T_opt = parms[14], T_max = parms[15], theta_growth = parms[3]))
+
 
   #unpack states
   #note that PHYTOS is a vector where each cell is different depth
@@ -53,7 +128,21 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   layer_PAR <- PAR_surface * exp(-layer_light_extinction * layer_mid_depths)
 
   # Temperature regulation of photosynthesis
-  fT <-  ((layer_temp - Tmin) / (Topt - Tmin)) *((Tmax - layer_temp) / (Tmax - Topt)) ^((Tmax - Topt) / (Topt - Tmin))
+  fT = NULL
+  tp = 20
+  kTn = Tparms$kTn
+  aTn = Tparms$aTn
+  bTn = Tparms$bTn
+  for(i in 1:length(layer_temp)){
+    fT[i] = 1
+    if(layer_temp[i] > T_max){
+      fT[i] = 0
+    } else if(layer_temp[i] < T_std){
+      fT[i] = theta_growth^(layer_temp[i]-tp)
+    } else {
+      fT[i] = theta_growth^(layer_temp[i]-tp) - theta_growth^(kTn*(layer_temp[i] - aTn)) + bTn
+    }
+  }
   fT[fT < 0] <- 0.0
 
   #Nitrogen limitation

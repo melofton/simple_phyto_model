@@ -12,6 +12,7 @@ run_datetimes <- seq(lubridate::as_date("2020-10-19"), lubridate::as_date("2022-
 parms <- c(
   -0.05, #w_p (negative is down, positive is up)
   30, #R_growth
+  1.08, #theta_growth
   0.5, #light_extinction
   50, #ksSW
   0.0, #N_o
@@ -21,9 +22,9 @@ parms <- c(
   0.1, #f_pr
   0.08, #R_resp
   1.08, #theta_resp
-  18, #Tmin
-  25, #Topt
-  35, #Tmax
+  10, #T_std
+  28, #T_opt
+  35, #T_max
   0.02, #N_C_ratio
   0.002, #P_C_ratio
   0, #phyto_flux_top
@@ -37,7 +38,7 @@ parms <- c(
 # INPUTS
 
 obs <- readr::read_csv("observations.csv", show_col_types = FALSE)
-num_boxes <- parms[20]
+num_boxes <- parms[21]
 
 #create a list of the inputs for each day
 
@@ -84,9 +85,9 @@ for(i in 1:length(run_datetimes)){
                                 variable %in% c("shortwave_radiation")) |>
     dplyr::pull(observation)
 
-  delx <- parms[19] / parms[20]
-  depths_mid <- seq(from = delx / 2, by = delx, length.out = parms[20])
-  depths_interface <- seq(from = 0, to = parms[19], by = delx)
+  delx <- parms[20] / parms[21]
+  depths_mid <- seq(from = delx / 2, by = delx, length.out = parms[21])
+  depths_interface <- seq(from = 0, to = parms[20], by = delx)
 
   # use this if you don't know morphometry (assumes 1 meter area per depth)
   areas_mid <- rep(1, length(depths_mid))
@@ -113,15 +114,15 @@ names(inputs) <- run_datetimes
 
 # Initial conditions
 
-yini <- rep(0, 3*parms[20])
-delx <- parms[19] / parms[20]
-depths <- seq(from = delx / 2, by = delx, length.out = parms[20])
+yini <- rep(0, 3*parms[21])
+delx <- parms[20] / parms[21]
+depths <- seq(from = delx / 2, by = delx, length.out = parms[21])
 
 initial_day <- obs |> dplyr::filter(date == run_datetimes[1])
 
 init_phyto <- initial_day |>
   dplyr::filter(variable == "chla") |>
-  dplyr::mutate(observation = observation / (1 / parms[23] * 12))
+  dplyr::mutate(observation = observation / (1 / parms[24] * 12))
 
 # Assign a value for each depth
 yini[1:num_boxes] <- approx(x = init_phyto$depth, y = init_phyto$observation, xout = depths, rule = 2)$y
@@ -152,7 +153,7 @@ output_df <- build_output_df(output, obs, parms, run_datetimes)
 # temporal-spatial plot of the concentrations
 par(oma = c(0, 0, 3, 0))   # set margin size (oma) so that the title is included
 col <- topo.colors
-lake_depth <- parms[19]
+lake_depth <- parms[20]
 
 mat <- output_df |>
   filter(variable == "phyto") |>
