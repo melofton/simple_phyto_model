@@ -87,7 +87,7 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   R_growth <- parms[2]
   theta_growth <- parms[3]
   light_extinction <- parms[4]
-  ksPAR <- parms[5]
+  I_K <- parms[5]
   N_o <- parms[6]
   K_N <- parms[7]
   P_o <- parms[8]
@@ -107,7 +107,7 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   KePHY <-parms[22]
   D_temp <- parms[23]
 
-  Tparms <- get_T_parms(group_parms = list(T_std = parms[24], T_opt = parms[14], T_max = parms[15], theta_growth = parms[3]))
+  Tparms <- get_T_parms(group_parms = list(T_std = parms[13], T_opt = parms[14], T_max = parms[15], theta_growth = parms[3]))
 
 
   #unpack states
@@ -152,7 +152,7 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   fP <- (PHS - P_o) / (PHS - P_o + K_P)
 
   #Light limitation
-  fI <- (layer_PAR / (layer_PAR + ksPAR))
+  fI = (layer_PAR/I_K) / (1 + (layer_PAR/I_K))
 
   #Combined resource limitation
   fResources <- apply(data.frame(fN = fN, fP = fP, fI = fI), 1, FUN = min)
@@ -226,5 +226,5 @@ phyto_depth_model <- function(t, state, parms, inputs) {
   dPHS_dt <- PHS_advection + PHS_diffusion + PHS_reaction
 
   list(c(dPHYTO_dt, dNIT_dt, dPHS_dt),  #This returns the vector of derivatives for each layer box
-       c(fN = fN, fP = fP, fI = fI, fResources = fResources, fT = fT, layer_light_extinction = layer_light_extinction))  #This returns the vector of diagnostics
+       c(fN = fN, fP = fP, fI = fI, fResources = fResources, fT = fT, layer_light_extinction = layer_light_extinction, layer_PAR = layer_PAR))  #This returns the vector of diagnostics
 }

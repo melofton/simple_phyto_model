@@ -3,24 +3,24 @@ library(tidyverse)
 source("build_output_df.R")
 source("depth_phyto_model.R")
 
-run_datetimes <- seq(lubridate::as_date("2020-10-19"), lubridate::as_date("2022-12-31"), by = "1 day")
+run_datetimes <- seq(lubridate::as_date("2018-08-06"), lubridate::as_date("2021-12-31"), by = "1 day")
 
 #Parameters
 #Currency = mmolC/m3
 #Time scale = day
 
 parms <- c(
-  -0.05, #w_p (negative is down, positive is up)
-  30, #R_growth
+  -0.001, #w_p (negative is down, positive is up)
+  2, #R_growth
   1.08, #theta_growth
-  0.5, #light_extinction
-  50, #ksSW
+  1, #light_extinction
+  10, #I_K
   0.0, #N_o
-  2.0, #K_N
+  2, #K_N
   0.0, #P_o
-  0.1, #K_P
+  0.0001, #K_P
   0.1, #f_pr
-  0.08, #R_resp
+  0.16, #R_resp
   1.08, #theta_resp
   10, #T_std
   28, #T_opt
@@ -33,7 +33,7 @@ parms <- c(
   38,# num_boxes
   0.005,#KePHYTO
   0.01, #D_temp
-  30) #Xcc
+  20) #Xcc
 
 # INPUTS
 
@@ -150,6 +150,15 @@ output_df <- build_output_df(output, obs, parms, run_datetimes)
 
 # Visualize output
 
+# assess model run
+output_df |>
+  filter(depth == 1.5 | is.na(depth)) |>
+  ggplot(aes(x = datetime, y = prediction)) +
+  geom_point(aes(y = observation)) +
+  geom_line(color = "lightblue3") +
+  facet_wrap(~variable, scale = "free") +
+  theme_bw()
+
 # temporal-spatial plot of the concentrations
 par(oma = c(0, 0, 3, 0))   # set margin size (oma) so that the title is included
 col <- topo.colors
@@ -203,12 +212,27 @@ filled.contour(x = run_datetimes,
                ylab = "Depth, m",
                main = "Concentration, mmolP/m3")
 
+mat <- output_df |>
+  filter(variable == "PAR") |>
+  select(datetime, depth, prediction) |>
+  pivot_wider(names_from = depth, values_from = prediction) |>
+  select(-datetime)
+
+filled.contour(x = run_datetimes,
+               y = depths,
+               z = as.matrix(mat),
+               color = col,
+               ylim = c(lake_depth, 0),
+               zlim = range(c(mat)),
+               xlab = "time, days",
+               ylab = "Depth, m",
+               main = "PAR, (umol/m2/s)")
+
 output_df |>
-  filter(depth == 1.5 | is.na(depth)) |>
-  ggplot(aes(x = datetime, y = prediction)) +
+  filter(variable == "temperature") |>
+  ggplot(aes(x = datetime, y = observation)) +
   geom_line() +
-  geom_point(aes(y = observation)) +
-  facet_wrap(~variable, scale = "free")
+  facet_wrap(~depth, scale = "free")
 
 output_df |>
   filter(variable == "frp") |>
